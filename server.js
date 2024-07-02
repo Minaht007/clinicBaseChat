@@ -4,33 +4,117 @@ const app = express();
 const fs = require("fs");
 const fileUpload = require("express-fileupload");
 
-const server = app.listen(3000, function () {
+let server = app.listen(3000, function () {
   console.log("Listening on port 3000");
 });
 
 const io = require("socket.io")(server, {
   allowEIO3: true,
 });
-
-// Хранилище подключенных пользователей по комнатам
-const rooms = {};
-
-// Статические файлы
 app.use(express.static(path.join(__dirname, "public")));
+let userConnections = [];
+io.on("connection", (socket) => {
+  console.log("socket id is", socket.id);
+  socket.on("userconnect", (data) => {
+    console.log("userconnect", data.displayName, data.meetingid);
 
-// Парсинг JSON и URL-encoded данных
+    let other_users = userConnections.filter(
+      (p) => p.meeting_id == data.meetingid
+    );
+
+    userConnections.push({
+      connectionId: socket.id,
+      user_id: data.displayName,
+      meeting_id: data.meetingid,
+    });
+
+    let userCount = userConnections.length;
+    
+
+    other_users.forEach((v) => {
+      socket.to(v.connectionId).emit("inform_other_about_me", {
+        other_user_id: data.displayName,
+        connId: socket.id,
+        userNumber: userCount,
+      });
+    });
+    socket.emit("inform_me_about_other_user", other_users);
+  });
+  socket.on("SDPProcess", (data) => {
+    io.to(data.to_connId).emit("SDPProcess", {
+      message: data.message,
+      from_connid: socket.id,
+    });
+  });
+
+  socket.on("sendMessage", (msg) => {
+    console.log(msg);
+    var mUser = userConnections.find((p) => p.connectionId == socket.id);
+    if (mUser) {
+      let meetingid = mUser.meeting_id;
+      let from = mUser.user_id;
+      let list = userConnections.filter((p) => p.meeting_id == meetingid);
+      list.forEach((v) => {
+        socket.to(v.connectionId).emit("showChatMessage", {
+          from: from,
+          message: msg,
+        });
+      });
+    }
+  });
+
+  socket.on("fileTransferToOther", (msg) => {
+    console.log(msg);
+    var mUser = userConnections.find((p) => p.connectionId == socket.id);
+    if (mUser) {
+      let meetingid = mUser.meeting_id;
+      let from = mUser.user_id;
+      let list = userConnections.filter((p) => p.meeting_id == meetingid);
+      list.forEach((v) => {
+        socket.to(v.connectionId).emit("showFileMessage", {
+          username: msg.username,
+          meetingid: msg.meetingid,
+          filePath: msg.filePath,
+          fileName: msg.fileName,
+        });
+      });
+    }
+  });
+
+  socket.on("fileTransferToOther", function(msg){
+    console.log(msg)
+    let user0
+  })
+
+  socket.on("disconnect", function () {
+    console.log("User got disconnected");
+    let disUser = userConnections.find((p) => p.connectionId == socket.id);
+    if (disUser) {
+      let meetingid = disUser.meeting_id;
+      userConnections = userConnections.filter(
+        (p) => p.connectionId != socket.id
+      );
+      let list = userConnections.filter((p) => p.meeting_id == meetingid);
+      list.forEach((v) => {
+        let userNumberAfterUserLeave = userConnections.length;
+        socket.to(v.connectionId).emit("inform_other_about_disconnect_user", {
+          connId: socket.id,
+          uNumber: userNumberAfterUserLeave,
+        });
+      });
+    }
+  });
+});
+// "Share data"
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Middleware для загрузки файлов
 app.use(fileUpload());
 
-// Роут для загрузки файлов
 app.post("/attachimg", function (req, res) {
   if (!req.files || Object.keys(req.files).length === 0) {
     return res.status(400).send("No files were uploaded.");
   }
-
   let data = req.body;
   let imageFile = req.files.zipfile;
   console.log(imageFile);
@@ -39,7 +123,6 @@ app.post("/attachimg", function (req, res) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-
   let filePath = path.join(dir, imageFile.name);
   imageFile.mv(filePath, function (error) {
     if (error) {
@@ -52,89 +135,4 @@ app.post("/attachimg", function (req, res) {
   });
 });
 
-// Обработка соединения через socket.io
-io.on("connection", (socket) => {
-  console.log("socket id is", socket.id);
 
-  // Обработка подключения нового пользователя
-  socket.on("userconnect", (data) => {
-    console.log("userconnect", data.displayName, data.meetingid);
-
-    // Добавляем пользователя в комнату
-    if (!rooms[data.meetingid]) {
-      rooms[data.meetingid] = [];
-    }
-    rooms[data.meetingid].push({
-      connectionId: socket.id,
-      user_id: data.displayName,
-      meeting_id: data.meetingid,
-    });
-
-    // Отправляем информацию о других пользователях в комнате текущему пользователю
-    let other_users = rooms[data.meetingid].filter(
-      (p) => p.connectionId !== socket.id
-    );
-    socket.emit("inform_me_about_other_user", other_users);
-
-    // Уведомляем остальных пользователей в комнате о новом пользователе
-    other_users.forEach((v) => {
-      socket.to(v.connectionId).emit("inform_other_about_me", {
-        other_user_id: data.displayName,
-        connId: socket.id,
-        userNumber: rooms[data.meetingid].length,
-      });
-    });
-  });
-
-  // Обработка отправки сообщения
-  socket.on("sendMessage", (msg) => {
-    console.log(msg);
-    var mUser = rooms[msg.meetingid].find((p) => p.connectionId == socket.id);
-    if (mUser) {
-      let from = mUser.user_id;
-      rooms[msg.meetingid].forEach((v) => {
-        socket.to(v.connectionId).emit("showChatMessage", {
-          from: from,
-          message: msg.message,
-        });
-      });
-    }
-  });
-
-  // Обработка передачи файла
-  socket.on("fileTransferToOther", (msg) => {
-    console.log(msg);
-    var mUser = rooms[msg.meetingid].find((p) => p.connectionId == socket.id);
-    if (mUser) {
-      let from = mUser.user_id;
-      rooms[msg.meetingid].forEach((v) => {
-        socket.to(v.connectionId).emit("showFileMessage", {
-          username: msg.username,
-          meetingid: msg.meetingid,
-          filePath: msg.filePath,
-          fileName: msg.fileName,
-        });
-      });
-    }
-  });
-
-  // Обработка отключения пользователя
-  socket.on("disconnect", function () {
-    console.log("User got disconnected");
-    for (let room in rooms) {
-      let disUser = rooms[room].find((p) => p.connectionId == socket.id);
-      if (disUser) {
-        rooms[room] = rooms[room].filter(
-          (p) => p.connectionId != socket.id
-        );
-        rooms[room].forEach((v) => {
-          let userNumberAfterUserLeave = rooms[room].length;
-          socket.to(v.connectionId).emit("inform_other_about_disconnect_user", {
-            connId: socket.id,
-            uNumber: userNumberAfterUserLeave,
-          });
-        });
-      }
-    }
-  });
-});

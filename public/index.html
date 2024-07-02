@@ -353,5 +353,24 @@
         MyApp._init(user_id, meeting_id);
       });
     </script>
+
+<script>
+  // Подключение к Netlify Function, обрабатывающей сокеты
+  const socket = io("https://docschat.netlify.app/.netlify/functions/socketServer");
+
+  // Обработка событий сокетов
+  socket.on("connect", () => {
+    console.log("Connected to server");
+  });
+
+  socket.on("message", (data) => {
+    console.log("Received message:", data);
+    // Обработка полученного сообщения
+  });
+
+  function sendMessage(message) {
+    socket.emit("sendMessage", message);
+  }
+</script>
   </body>
 </html>
