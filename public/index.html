@@ -356,7 +356,7 @@
 
 <script>
   // Подключение к Netlify Function, обрабатывающей сокеты
-  const socket = io("https://docschat.netlify.app/.netlify/functions/socketServer");
+  const socket = io("https://main--docschat.netlify.app/.netlify/functions/socketServer");
 
   // Обработка событий сокетов
   socket.on("connect", () => {
@@ -374,3 +374,5 @@
 </script>
   </body>
 </html>
+
+<!-- https://main--docschat.netlify.app/ -->
