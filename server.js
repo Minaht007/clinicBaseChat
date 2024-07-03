@@ -1,45 +1,52 @@
 const express = require("express");
+const http = require("http");
+const socketIo = require("socket.io");
 const path = require("path");
+
 const app = express();
-const fs = require("fs");
-const fileUpload = require("express-fileupload");
+const server = http.createServer(app);
+const io = socketIo(server);
 
-let server = app.listen(3000, function () {
-  console.log("Listening on port 3000");
-});
+const PORT = process.env.PORT || 3000;
 
-const io = require("socket.io")(server, {
-  allowEIO3: true,
-});
+// Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, "public")));
+
+// Store connections and room information
 let userConnections = [];
+
+// Socket.IO logic
 io.on("connection", (socket) => {
-  console.log("socket id is", socket.id);
+  console.log("New client connected: " + socket.id);
+
+  // Handle user joining a meeting
   socket.on("userconnect", (data) => {
-    console.log("userconnect", data.displayName, data.meetingid);
+    console.log("User connected:", data.displayName, "to meeting", data.meetingid);
 
-    let other_users = userConnections.filter(
-      (p) => p.meeting_id == data.meetingid
-    );
+    // Filter other users in the same meeting
+    let other_users = userConnections.filter((p) => p.meeting_id == data.meetingid);
 
+    // Add the new user to the connections list
     userConnections.push({
       connectionId: socket.id,
       user_id: data.displayName,
       meeting_id: data.meetingid,
     });
 
-    let userCount = userConnections.length;
-    
-
+    // Inform other users about the new participant
     other_users.forEach((v) => {
       socket.to(v.connectionId).emit("inform_other_about_me", {
         other_user_id: data.displayName,
         connId: socket.id,
-        userNumber: userCount,
+        userNumber: userConnections.length,
       });
     });
+
+    // Inform the new participant about other users
     socket.emit("inform_me_about_other_user", other_users);
   });
+
+  // Handle SDP messages
   socket.on("SDPProcess", (data) => {
     io.to(data.to_connId).emit("SDPProcess", {
       message: data.message,
@@ -47,6 +54,7 @@ io.on("connection", (socket) => {
     });
   });
 
+  // Handle chat messages
   socket.on("sendMessage", (msg) => {
     console.log(msg);
     var mUser = userConnections.find((p) => p.connectionId == socket.id);
@@ -63,6 +71,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle file transfer
   socket.on("fileTransferToOther", (msg) => {
     console.log(msg);
     var mUser = userConnections.find((p) => p.connectionId == socket.id);
@@ -81,19 +90,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("fileTransferToOther", function(msg){
-    console.log(msg)
-    let user0
-  })
-
-  socket.on("disconnect", function () {
-    console.log("User got disconnected");
+  // Handle user disconnecting
+  socket.on("disconnect", () => {
+    console.log("Client disconnected: " + socket.id);
     let disUser = userConnections.find((p) => p.connectionId == socket.id);
     if (disUser) {
       let meetingid = disUser.meeting_id;
-      userConnections = userConnections.filter(
-        (p) => p.connectionId != socket.id
-      );
+      userConnections = userConnections.filter((p) => p.connectionId != socket.id);
       let list = userConnections.filter((p) => p.meeting_id == meetingid);
       list.forEach((v) => {
         let userNumberAfterUserLeave = userConnections.length;
@@ -105,34 +108,8 @@ io.on("connection", (socket) => {
     }
   });
 });
-// "Share data"
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(fileUpload());
-
-app.post("/attachimg", function (req, res) {
-  if (!req.files || Object.keys(req.files).length === 0) {
-    return res.status(400).send("No files were uploaded.");
-  }
-  let data = req.body;
-  let imageFile = req.files.zipfile;
-  console.log(imageFile);
-
-  let dir = path.join(__dirname, "public", "attachment", data.meeting_id);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  let filePath = path.join(dir, imageFile.name);
-  imageFile.mv(filePath, function (error) {
-    if (error) {
-      console.log("Couldn't upload the file, error: ", error);
-      return res.status(500).send(error);
-    } else {
-      console.log("Image file successfully uploaded");
-      res.send("File uploaded!");
-    }
-  });
+// Start the server
+server.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
 });
-
-
