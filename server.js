@@ -3,10 +3,18 @@ const path = require("path");
 const app = express();
 const fs = require("fs");
 const fileUpload = require("express-fileupload");
+const http = require('http');
 
-let server = app.listen(3000, function () {
-  console.log("Listening on port 3000");
+const port = process.env.PORT || 3000;
+const server = http.createServer(app);
+
+server.listen(port, function() {
+  console.log(`Listening on port ${port}`);
 });
+
+// const server = app.listen(3000, function () {
+//   console.log("Listening on port 3000");
+// });
 
 const io = require("socket.io")(server, {
   allowEIO3: true,
@@ -134,5 +142,3 @@ app.post("/attachimg", function (req, res) {
     }
   });
 });
-
-
